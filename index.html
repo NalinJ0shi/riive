@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Animation Engine - Step 1 & 2</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
+</head>
+<body>
+
+    <div id="editor-ui">
+        <div id="toolbar">
+            <label class="btn-primary">
+                Import Image
+                <input type="file" id="image-upload" accept="image/*" hidden>
+            </label>
+            <div id="zoom-display">Zoom: 100%</div>
+            <div id="controls-hint">Scroll: Zoom | Right-Click: Pan | Left-Click: Move</div>
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script src="editor.js"></script>
+</body>
+</html>

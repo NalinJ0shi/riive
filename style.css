@@ -1,0 +1,46 @@
+body, html {
+    margin: 0; padding: 0;
+    overflow: hidden;
+    background-color: #121212;
+    font-family: 'Inter', -apple-system, sans-serif;
+}
+
+#toolbar {
+    position: absolute;
+    top: 20px; left: 20px;
+    z-index: 10;
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    background: rgba(30, 30, 30, 0.9);
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: 1px solid #444;
+    color: white;
+}
+
+.btn-primary {
+    background: #007AFF;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+#zoom-display {
+    font-size: 13px;
+    font-weight: bold;
+    color: #007AFF;
+    min-width: 80px;
+}
+
+#controls-hint {
+    font-size: 11px;
+    color: #888;
+}
+
+#canvas-container {
+    width: 100vw;
+    height: 100vh;
+}
