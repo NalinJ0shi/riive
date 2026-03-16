@@ -9,17 +9,23 @@ window.onload = () => {
     });
     document.getElementById('canvas-container').appendChild(app.view);
 
-    // The "Figma" World Container
     const world = new PIXI.Container();
     app.stage.addChild(world);
 
-    // --- 2. STATE & HISTORY ---
+    // --- 2. STATE, REGISTRY & HISTORY ---
     let currentFrame = 0;
     let isPlaying = false;
     let selectedSprite = null;
+    let isBinding = false; 
+    let layerCount = 1;
+    let spriteRegistry = {}; 
+
+    // NEW: Added the "assets" object to store the image text strings
     let animationData = {
-        duration: 60, // Fixed 60-frame timeline
-        sprites: {}    // Format: { spriteID: { frameNumber: {x, y} } }
+        duration: 60,
+        sprites: {},
+        hierarchy: {},
+        assets: {} 
     };
 
     let history = [];
@@ -44,21 +50,49 @@ window.onload = () => {
     const trackContainer = document.getElementById('timeline-track-container');
     const playBtn = document.getElementById('play-btn');
     const addKeyframeBtn = document.getElementById('add-keyframe-btn');
-    const frameWidth = 20; // Visual width of each frame in pixels
+    const bindBtn = document.getElementById('bind-btn'); 
+    const frameWidth = 20;
 
-    // --- 4. VIEWPORT LOGIC (ZOOM & PAN) ---
+    // --- 4. LAYER & SELECTION MANAGEMENT ---
+    function selectSprite(sprite) {
+        selectedSprite = sprite;
+        
+        Object.values(spriteRegistry).forEach(c => c.tint = 0xFFFFFF);
+        if (sprite) sprite.tint = 0x007AFF;
+        
+        document.querySelectorAll('.layer-item').forEach(el => el.classList.remove('active'));
+        if (sprite) {
+            const activeLayer = document.getElementById(`layer-${sprite.id}`);
+            if (activeLayer) activeLayer.classList.add('active');
+        }
+
+        renderKeyMarkers();
+    }
+
+    function addLayerToPanel(sprite, name) {
+        const list = document.getElementById('layers-list');
+        if (!list) return;
+        
+        const li = document.createElement('li');
+        li.className = 'layer-item';
+        li.id = `layer-${sprite.id}`;
+        li.innerText = name;
+        
+        li.onclick = () => selectSprite(sprite);
+        list.appendChild(li);
+    }
+
+    // --- 5. VIEWPORT LOGIC (ZOOM & PAN) ---
     app.view.addEventListener('wheel', (e) => {
         e.preventDefault();
         const scaleFactor = Math.pow(1.1, -e.deltaY / 100);
         const mousePos = app.renderer.events.pointer.global;
         const localPos = world.toLocal(mousePos);
         
-        world.scale.x *= scaleFactor;
-        world.scale.y *= scaleFactor;
+        world.scale.x *= scaleFactor; world.scale.y *= scaleFactor;
 
         const newMousePos = world.toGlobal(localPos);
-        world.x -= (newMousePos.x - mousePos.x);
-        world.y -= (newMousePos.y - mousePos.y);
+        world.x -= (newMousePos.x - mousePos.x); world.y -= (newMousePos.y - mousePos.y);
 
         zoomDisplay.innerText = `Zoom: ${Math.round(world.scale.x * 100)}%`;
     }, { passive: false });
@@ -66,15 +100,10 @@ window.onload = () => {
     let isPanning = false;
     app.view.onmousedown = (e) => { if (e.button === 1 || e.button === 2) isPanning = true; };
     window.addEventListener('mouseup', () => isPanning = false);
-    window.addEventListener('mousemove', (e) => {
-        if (isPanning) {
-            world.x += e.movementX;
-            world.y += e.movementY;
-        }
-    });
+    window.addEventListener('mousemove', (e) => { if (isPanning) { world.x += e.movementX; world.y += e.movementY; } });
     app.view.oncontextmenu = (e) => e.preventDefault();
 
-    // --- 5. ASSET IMPORT ---
+    // --- 6. ASSET IMPORT (UPDATED FOR BASE64) ---
     const fileInput = document.getElementById('image-upload');
     fileInput.onchange = (event) => {
         const file = event.target.files[0];
@@ -82,7 +111,10 @@ window.onload = () => {
 
         const reader = new FileReader();
         reader.onload = (e) => {
-            const texture = PIXI.Texture.from(e.target.result);
+            // e.target.result is the Base64 text string of your image
+            const base64ImageString = e.target.result; 
+            
+            const texture = PIXI.Texture.from(base64ImageString);
             const sprite = new PIXI.Sprite(texture);
             sprite.id = "sprite_" + Date.now();
             sprite.anchor.set(0.5);
@@ -91,22 +123,71 @@ window.onload = () => {
             sprite.x = localCenter.x;
             sprite.y = localCenter.y;
 
+            spriteRegistry[sprite.id] = sprite;
+
+            // NEW: Save the image string directly into our JSON data!
+            animationData.assets[sprite.id] = base64ImageString;
+
             enableSpriteDragging(sprite);
             world.addChild(sprite);
+
+            addLayerToPanel(sprite, `Layer ${layerCount++}`);
+            selectSprite(sprite); 
         };
         reader.readAsDataURL(file);
     };
 
-    // --- 6. DRAG & DROP ENGINE ---
+    // --- 7. PARENTING ENGINE ---
+    if (bindBtn) {
+        bindBtn.onclick = () => {
+            if (!selectedSprite) return alert("Select a child sprite first!");
+            
+            isBinding = !isBinding;
+            bindBtn.classList.toggle('active-bind');
+            if (isBinding) {
+                document.body.classList.add('binding-mode');
+                bindBtn.innerText = "Click target Parent...";
+                selectedSprite.eventMode = 'none'; 
+            } else {
+                document.body.classList.remove('binding-mode');
+                bindBtn.innerText = "🔗 Bind to Parent";
+                if (selectedSprite) selectedSprite.eventMode = 'static';
+            }
+        };
+    }
+
+    // --- 8. DRAG & DROP ENGINE ---
     function enableSpriteDragging(sprite) {
         sprite.eventMode = 'static';
         sprite.cursor = 'grab';
 
         sprite.on('pointerdown', (e) => {
-            selectedSprite = sprite;
-            world.children.forEach(c => c.tint = 0xFFFFFF);
-            sprite.tint = 0x007AFF;
-            renderKeyMarkers();
+            e.stopPropagation();
+
+            if (isBinding) {
+                if (sprite !== selectedSprite && selectedSprite) {
+                    const globalPos = selectedSprite.getGlobalPosition();
+                    sprite.addChild(selectedSprite);
+                    
+                    const newLocalPos = sprite.toLocal(globalPos);
+                    selectedSprite.x = newLocalPos.x;
+                    selectedSprite.y = newLocalPos.y;
+
+                    saveState();
+                    animationData.hierarchy[selectedSprite.id] = sprite.id;
+                    
+                    selectedSprite.eventMode = 'static';
+                    console.log(`Successfully bound!`);
+                }
+                
+                isBinding = false;
+                document.body.classList.remove('binding-mode');
+                bindBtn.classList.remove('active-bind');
+                bindBtn.innerText = "🔗 Bind to Parent";
+                selectSprite(sprite);
+            } else {
+                selectSprite(sprite);
+            }
 
             sprite.dragging = true;
             sprite.alpha = 0.8;
@@ -117,7 +198,9 @@ window.onload = () => {
         window.addEventListener('pointermove', (e) => {
             if (sprite.dragging) {
                 const rect = app.view.getBoundingClientRect();
-                const localMouse = world.toLocal(new PIXI.Point(e.clientX - rect.left, e.clientY - rect.top));
+                const globalMouse = new PIXI.Point(e.clientX - rect.left, e.clientY - rect.top);
+                const localMouse = sprite.parent.toLocal(globalMouse);
+                
                 sprite.x = localMouse.x + sprite.offset.x;
                 sprite.y = localMouse.y + sprite.offset.y;
             }
@@ -125,7 +208,6 @@ window.onload = () => {
 
         window.addEventListener('pointerup', () => {
             if (sprite.dragging) {
-                // If a keyframe exists at this frame, update it and save to history
                 if (animationData.sprites[sprite.id]?.[currentFrame]) {
                     saveState();
                     animationData.sprites[sprite.id][currentFrame] = { x: sprite.x, y: sprite.y };
@@ -136,7 +218,7 @@ window.onload = () => {
         });
     }
 
-    // --- 7. TIMELINE & KEYFRAME LOGIC ---
+    // --- 9. TIMELINE & KEYFRAME LOGIC ---
     addKeyframeBtn.onclick = () => {
         if (!selectedSprite) return;
         saveState();
@@ -184,7 +266,7 @@ window.onload = () => {
         });
     }
 
-    // --- 8. PLAYBACK & SCRUBBING ---
+    // --- 10. PLAYBACK & SCRUBBING ---
     let isScrubbing = false;
     trackContainer.onmousedown = (e) => {
         if (e.target.className === 'keyframe-marker') return;
@@ -206,7 +288,7 @@ window.onload = () => {
         document.getElementById('current-frame').innerText = `Frame: ${frame}`;
 
         for (const [id, keyframes] of Object.entries(animationData.sprites)) {
-            const sprite = world.children.find(s => s.id === id);
+            const sprite = spriteRegistry[id];
             if (!sprite || sprite.dragging) continue;
 
             const frameKeys = Object.keys(keyframes).map(Number).sort((a, b) => a - b);
@@ -237,7 +319,7 @@ window.onload = () => {
         }
     });
 
-    // --- 9. GLOBAL HOTKEYS ---
+    // --- 11. GLOBAL HOTKEYS ---
     window.addEventListener('keydown', (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
             e.preventDefault();
@@ -245,7 +327,7 @@ window.onload = () => {
         }
     });
 
-    // --- 10. EXPORT TO JSON ---
+    // --- 12. EXPORT TO JSON ---
     const exportBtn = document.getElementById('export-btn');
     if (exportBtn) {
         exportBtn.onclick = () => {
@@ -265,6 +347,4 @@ window.onload = () => {
             console.log("Exported!", animationData);
         };
     }
-
-}; // <-- This SINGLE closing bracket ends the window.onload function. 
-   // Make sure there are no other brackets after this line!
+};

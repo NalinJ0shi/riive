@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>My Custom Animation Player</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background: #fff0f3; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+
+    <script>
+        // 1. Initialize Full-Screen Player Canvas
+        const app = new PIXI.Application({ 
+            width: window.innerWidth, 
+            height: window.innerHeight, 
+            backgroundColor: 0xffffff,
+            resizeTo: window 
+        });
+        document.body.appendChild(app.view);
+
+        const world = new PIXI.Container();
+        app.stage.addChild(world);
+
+        // --- MOUSE TRACKING SETUP ---
+        let targetMouseX = window.innerWidth / 2;
+        let targetMouseY = window.innerHeight / 2;
+
+        // Turn on stage interactivity to track the mouse everywhere
+        app.stage.eventMode = 'static';
+        app.stage.hitArea = new PIXI.Rectangle(0, 0, window.innerWidth, window.innerHeight);
+        app.stage.on('pointermove', (e) => {
+            targetMouseX = e.global.x;
+            targetMouseY = e.global.y;
+        });
+
+        // 2. Fetch YOUR custom JSON file
+        fetch('eye_tracker.json')
+            .then(response => response.json())
+            .then(animationData => {
+                
+                const sprites = {};
+
+                // 3. Rebuild ALL images
+                for (const spriteID in animationData.assets) {
+                    const base64String = animationData.assets[spriteID];
+                    const texture = PIXI.Texture.from(base64String);
+                    const sprite = new PIXI.Sprite(texture);
+                    sprite.anchor.set(0.5); 
+                    
+                    // NEW: We save the "Base" position separate from the actual "Display" position
+                    // This stops the animation and the mouse tracking from fighting!
+                    sprite.baseX = 0;
+                    sprite.baseY = 0;
+
+                    if (animationData.setup && animationData.setup[spriteID]) {
+                        sprite.baseX = animationData.setup[spriteID].x;
+                        sprite.baseY = animationData.setup[spriteID].y;
+                    }
+                    
+                    sprites[spriteID] = sprite;
+                    world.addChild(sprite);
+                }
+
+                // 4. Rebuild the "Skeleton" (Parenting)
+                if (animationData.hierarchy) {
+                    for (const [childID, parentID] of Object.entries(animationData.hierarchy)) {
+                        if (sprites[childID] && sprites[parentID]) {
+                            sprites[parentID].addChild(sprites[childID]);
+                        }
+                    }
+                }
+
+                // 5. The Hybrid Playback Engine
+                let currentFrame = 0;
+                
+                app.ticker.add(() => {
+                    
+                    // --- STEP A: TIMELINE ANIMATION ---
+                    currentFrame++;
+                    if (currentFrame >= animationData.duration) currentFrame = 0;
+
+                    if (animationData.sprites) {
+                        for (const [id, keyframes] of Object.entries(animationData.sprites)) {
+                            const sprite = sprites[id];
+                            if (!sprite) continue;
+
+                            const frameKeys = Object.keys(keyframes).map(Number).sort((a, b) => a - b);
+                            let prev = frameKeys.filter(f => f <= currentFrame).pop();
+                            let next = frameKeys.filter(f => f > currentFrame)[0];
+
+                            // Update the BASE position using the keyframes
+                            if (prev !== undefined && next !== undefined) {
+                                const progress = (currentFrame - prev) / (next - prev);
+                                sprite.baseX = keyframes[prev].x + (keyframes[next].x - keyframes[prev].x) * progress;
+                                sprite.baseY = keyframes[prev].y + (keyframes[next].y - keyframes[prev].y) * progress;
+                            } else if (prev !== undefined) {
+                                sprite.baseX = keyframes[prev].x; 
+                                sprite.baseY = keyframes[prev].y;
+                            }
+                        }
+                    }
+
+                    // --- STEP B: APPLY LIVE MOUSE TRACKING ---
+                    for (const id in sprites) {
+                        const sprite = sprites[id];
+                        
+                        // First, set the sprite to wherever the timeline says it should be
+                        sprite.x = sprite.baseX;
+                        sprite.y = sprite.baseY;
+
+                        // Magic Rule: If this sprite is a CHILD (like your bound eyes), make it track the mouse!
+                        if (sprite.parent && sprite.parent !== world) {
+                            
+                            // Find the mouse position relative to the Face
+                            const localMouse = sprite.parent.toLocal(new PIXI.Point(targetMouseX, targetMouseY));
+                            
+                            // Calculate the distance from the Eye's center to the Mouse
+                            let dx = localMouse.x - sprite.baseX;
+                            let dy = localMouse.y - sprite.baseY;
+
+                            // THE CLAMP: Don't let the pupil move more than 12 pixels!
+                            let maxMove = 12; 
+                            
+                            // Calculate the offset (the 0.15 makes it smooth instead of snappy)
+                            let offsetX = Math.max(-maxMove, Math.min(maxMove, dx * 0.15));
+                            let offsetY = Math.max(-maxMove, Math.min(maxMove, dy * 0.15));
+
+                            // Add the mouse offset ON TOP of the timeline animation!
+                            sprite.x = sprite.baseX + offsetX;
+                            sprite.y = sprite.baseY + offsetY;
+                        }
+                    }
+                });
+            })
+            .catch(err => console.error("Error loading JSON:", err));
+    </script>
+</body>
+</html>
