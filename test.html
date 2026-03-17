@@ -63,9 +63,12 @@
                 sprite.baseX = 0;
                 sprite.baseY = 0;
 
-                if (animationData.setup && animationData.setup[spriteID]) {
-                    sprite.baseX = animationData.setup[spriteID].x;
-                    sprite.baseY = animationData.setup[spriteID].y;
+                sprite.baseX = 0;
+                sprite.baseY = 0;
+
+                // THE FIX: Check for the pupil tag directly! No "setup" check needed.
+                if (animationData.sprites[spriteID] && animationData.sprites[spriteID].type === "pupil") {
+                    sprite.isPupil = true; 
                 }
                 
                 sprites[spriteID] = sprite;
@@ -169,43 +172,74 @@
                 }
 
                 // --- STEP C: APPLY LIVE MOUSE TRACKING ---
-                let spriteIndex = 0; // Create a counter
-
                 for (const id in sprites) {
-                    const sprite = sprites[id];
-                    spriteIndex++; // Count up for each image
-                    
-                    // Default to timeline position
-                    sprite.x = sprite.baseX;
-                    sprite.y = sprite.baseY;
+                const sprite = sprites[id];
+                
+                // Default to timeline position
+                sprite.x = sprite.baseX;
+                sprite.y = sprite.baseY;
 
-                    // NEW: Target the 5th imported image (Pupils) directly!
-                    if (spriteIndex === 5) {
-                        
-                        // Because there is no parent, we use the 'world' container for local mouse coordinates
-                        const localMouse = world.toLocal(new PIXI.Point(targetMouseX, targetMouseY));
-                        let dx = localMouse.x - sprite.baseX;
-                        let dy = localMouse.y - sprite.baseY;
-
-                        let targetX = dx * 0.15;
-                        let targetY = dy * 0.15;
-
-                        let maxRadius = 15; 
-                        let distance = Math.sqrt((targetX * targetX) + (targetY * targetY));
-
-                        let offsetX = targetX;
-                        let offsetY = targetY;
-
-                        if (distance > maxRadius) {
-                            let ratio = maxRadius / distance;
-                            offsetX = targetX * ratio;
-                            offsetY = targetY * ratio;
-                        }
-
-                        sprite.x = sprite.baseX + offsetX;
-                        sprite.y = sprite.baseY + offsetY;
+                // INSTEAD OF GUESSING THE INDEX, LOOK FOR THE TAG!
+                if (sprite.isPupil) {
+    
+                    // --- 1. DEBUG VISUALIZER: DRAW THE INVISIBLE CAGE ---
+                    if (!sprite.debugOutline) {
+                        sprite.debugOutline = new PIXI.Graphics();
+                        sprite.parent.addChild(sprite.debugOutline);
                     }
+
+                    // TUNE THESE NUMBERS! Watch the red oval on your screen change size.
+                   // TUNE THESE: The size of the cage
+                    let rx = 25; 
+                    let ry = 12; 
+
+                    // NEW! TUNE THESE: Slide the invisible cage to fix the tug-of-war
+                    // A negative number slides the cage left, positive slides right.
+                    let cageOffsetX = 8; 
+                    let cageOffsetY = -5;   
+
+                    // --- 1. DEBUG VISUALIZER ---
+                    if (!sprite.debugOutline) {
+                        sprite.debugOutline = new PIXI.Graphics();
+                        sprite.parent.addChild(sprite.debugOutline);
+                    }
+                    sprite.debugOutline.clear();
+                    sprite.debugOutline.lineStyle(3, 0xFF0000, 1); 
+                    // We now draw the red oval at the shifted position!
+                    sprite.debugOutline.drawEllipse(sprite.baseX + cageOffsetX, sprite.baseY + cageOffsetY, rx, ry);
+                    // ----------------------------------------------------
+
+                    // 2. PARENT SPACE TRACKING
+                    const localMouse = sprite.parent.toLocal(new PIXI.Point(targetMouseX, targetMouseY));
+                    let dx = localMouse.x - sprite.baseX;
+                    let dy = localMouse.y - sprite.baseY;
+
+                    let targetX = dx * 0.15;
+                    let targetY = dy * 0.15;
+
+                    // 3. ASYMMETRICAL CLAMPING MATH (The Magic Fix)
+                    // We temporarily shift the math into the cage's new offset space
+                    let shiftedX = targetX - cageOffsetX;
+                    let shiftedY = targetY - cageOffsetY;
+
+                    let ellipseCalc = (shiftedX * shiftedX) / (rx * rx) + (shiftedY * shiftedY) / (ry * ry);
+
+                    // If it hits the boundary, clamp it
+                    if (ellipseCalc > 1) {
+                        let scale = 1 / Math.sqrt(ellipseCalc);
+                        shiftedX = shiftedX * scale;
+                        shiftedY = shiftedY * scale;
+                    }
+
+                    // Shift the math back to reality
+                    let offsetX = shiftedX + cageOffsetX;
+                    let offsetY = shiftedY + cageOffsetY;
+
+                    // Add to the final sprite position
+                    sprite.x = sprite.baseX + offsetX;
+                    sprite.y = sprite.baseY + offsetY;
                 }
+            }
             });
         })
         .catch(err => console.error("Error loading JSON:", err));
