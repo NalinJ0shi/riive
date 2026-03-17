@@ -2,160 +2,213 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>My Custom Animation Player</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Animation Player Test</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background: #fff0f3; }
+        /* Removes default browser margins so the canvas is truly full screen */
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #ffffff; }
         canvas { display: block; }
     </style>
 </head>
 <body>
 
-    <script>
-        // 1. Initialize Full-Screen Player Canvas
-        const app = new PIXI.Application({ 
-            width: window.innerWidth, 
-            height: window.innerHeight, 
-            backgroundColor: 0xffffff,
-            resizeTo: window 
-        });
-        document.body.appendChild(app.view);
+<script>
+    // 1. Initialize Full-Screen Player Canvas
+    const app = new PIXI.Application({ 
+        width: window.innerWidth, 
+        height: window.innerHeight, 
+        backgroundColor: 0xffffff,
+        resizeTo: window 
+    });
+    document.body.appendChild(app.view);
 
-        const world = new PIXI.Container();
-        app.stage.addChild(world);
+    const world = new PIXI.Container();
+    
+    // --- SCALE & POSITION CONTROLS ---
+    const scaleFactor = 0.5; // Change this to scale the character (e.g., 0.3 for 30%)
+    world.scale.set(scaleFactor);
+    
+    // This math keeps the character perfectly centered after shrinking
+    world.x = (window.innerWidth / 2) * (1 - scaleFactor);
+    world.y = (window.innerHeight / 2) * (1 - scaleFactor);
+    app.stage.addChild(world);
 
-        // --- MOUSE TRACKING SETUP ---
-        let targetMouseX = window.innerWidth / 2;
-        let targetMouseY = window.innerHeight / 2;
+    // --- MOUSE TRACKING SETUP ---
+    let targetMouseX = window.innerWidth / 2;
+    let targetMouseY = window.innerHeight / 2;
 
-        app.stage.eventMode = 'static';
-        app.stage.hitArea = new PIXI.Rectangle(0, 0, window.innerWidth, window.innerHeight);
-        app.stage.on('pointermove', (e) => {
-            targetMouseX = e.global.x;
-            targetMouseY = e.global.y;
-        });
+    app.stage.eventMode = 'static';
+    app.stage.hitArea = new PIXI.Rectangle(0, 0, window.innerWidth, window.innerHeight);
+    app.stage.on('pointermove', (e) => {
+        targetMouseX = e.global.x;
+        targetMouseY = e.global.y;
+    });
 
-        // 2. Fetch YOUR custom JSON file
-        fetch('idle anim.json')
-            .then(response => response.json())
-            .then(animationData => {
+    // 2. Fetch YOUR custom JSON file (ensure the name matches your export)
+    fetch('idle5.json')
+        .then(response => response.json())
+        .then(animationData => {
+            
+            const sprites = {};
+
+            // 3. Rebuild ALL images
+            for (const spriteID in animationData.assets) {
+                const base64String = animationData.assets[spriteID];
+                const texture = PIXI.Texture.from(base64String);
+                const sprite = new PIXI.Sprite(texture);
+                sprite.anchor.set(0.5); 
                 
-                const sprites = {};
+                // Save Base position for timeline rendering
+                sprite.baseX = 0;
+                sprite.baseY = 0;
 
-                // 3. Rebuild ALL images
-                for (const spriteID in animationData.assets) {
-                    const base64String = animationData.assets[spriteID];
-                    const texture = PIXI.Texture.from(base64String);
-                    const sprite = new PIXI.Sprite(texture);
-                    sprite.anchor.set(0.5); 
-                    
-                    // Save Base position for timeline vs live-tracking separation
-                    sprite.baseX = 0;
-                    sprite.baseY = 0;
-
-                    if (animationData.setup && animationData.setup[spriteID]) {
-                        sprite.baseX = animationData.setup[spriteID].x;
-                        sprite.baseY = animationData.setup[spriteID].y;
-                    }
-                    
-                    sprites[spriteID] = sprite;
-                    world.addChild(sprite);
+                if (animationData.setup && animationData.setup[spriteID]) {
+                    sprite.baseX = animationData.setup[spriteID].x;
+                    sprite.baseY = animationData.setup[spriteID].y;
                 }
-
-                // 4. Rebuild the "Skeleton" (Parenting)
-                if (animationData.hierarchy) {
-                    for (const [childID, parentID] of Object.entries(animationData.hierarchy)) {
-                        if (sprites[childID] && sprites[parentID]) {
-                            sprites[parentID].addChild(sprites[childID]);
-                        }
-                    }
-                }
-
-                // --- ZERO-CONFIG TRICK: Calculate Skeleton Depth ---
-                // Shirt=0, Arm=1, Face=2, Eyes/Glasses=3, Pupils=4
-                for (const id in sprites) {
-                    let depth = 0;
-                    let current = sprites[id];
-                    while (current.parent && current.parent !== world) {
-                        depth++;
-                        current = current.parent;
-                    }
-                    sprites[id].depthLevel = depth;
-                }
-
-                // 5. The Hybrid Playback Engine
-                let currentFrame = 0;
                 
-                app.ticker.add(() => {
-                    
-                    // --- STEP A: TIMELINE ANIMATION ---
+                sprites[spriteID] = sprite;
+                world.addChild(sprite);
+            }
+
+            // 4. Rebuild the "Skeleton" (Parenting Hierarchy)
+            if (animationData.hierarchy) {
+                for (const [childID, parentID] of Object.entries(animationData.hierarchy)) {
+                    if (sprites[childID] && sprites[parentID]) {
+                        sprites[parentID].addChild(sprites[childID]);
+                    }
+                }
+            }
+
+            // Calculate depth for pupil tracking
+            for (const id in sprites) {
+                let depth = 0;
+                let current = sprites[id];
+                while (current.parent && current.parent !== world) {
+                    depth++;
+                    current = current.parent;
+                }
+                sprites[id].depthLevel = depth;
+            }
+
+            // 5. The Segmented Playback Engine
+            const segments = {
+                idle: { start: 0, end: 60, loop: true },
+                angry: { start: 100, end: 130, loop: false } // Will hold on frame 130
+            };
+            
+            let activeSegment = segments.idle;
+            let currentFrame = activeSegment.start;
+
+            // --- STATE MACHINE LOGIC ---
+            // Make the entire 'world' container the interactive trigger
+            world.eventMode = 'static';
+            world.cursor = 'pointer';
+
+            // Trigger Angry State on Hover
+            world.on('pointerenter', () => {
+                activeSegment = segments.angry;
+                currentFrame = activeSegment.start;
+            });
+
+            // Revert to Idle State when mouse leaves
+            world.on('pointerleave', () => {
+                activeSegment = segments.idle;
+                currentFrame = activeSegment.start;
+            });
+
+            // 6. The Animation Loop (Ticker)
+            app.ticker.add(() => {
+                
+                // --- STEP A: TIMELINE SEGMENTATION & LOOPING ---
+                // If we haven't reached the end, keep playing
+                if (currentFrame < activeSegment.end) {
                     currentFrame++;
-                    if (currentFrame >= animationData.duration) currentFrame = 0;
+                } 
+                // If we hit the end AND it's supposed to loop, go back to start
+                else if (activeSegment.loop) {
+                    currentFrame = activeSegment.start;
+                } 
+                // If we hit the end and loop is FALSE, just hold on the last frame
+                else {
+                    currentFrame = activeSegment.end; 
+                }
 
-                    if (animationData.sprites) {
-                        for (const [id, keyframes] of Object.entries(animationData.sprites)) {
-                            const sprite = sprites[id];
-                            if (!sprite) continue;
-
-                            const frameKeys = Object.keys(keyframes).map(Number).sort((a, b) => a - b);
-                            let prev = frameKeys.filter(f => f <= currentFrame).pop();
-                            let next = frameKeys.filter(f => f > currentFrame)[0];
-
-                            if (prev !== undefined && next !== undefined) {
-                                const progress = (currentFrame - prev) / (next - prev);
-                                sprite.baseX = keyframes[prev].x + (keyframes[next].x - keyframes[prev].x) * progress;
-                                sprite.baseY = keyframes[prev].y + (keyframes[next].y - keyframes[prev].y) * progress;
-                            } else if (prev !== undefined) {
-                                sprite.baseX = keyframes[prev].x; 
-                                sprite.baseY = keyframes[prev].y;
-                            }
-                        }
-                    }
-
-                    // --- STEP B: APPLY LIVE MOUSE TRACKING (Radial Clamp) ---
-                    for (const id in sprites) {
+                // --- STEP B: INTERPOLATE KEYFRAMES ---
+                if (animationData.sprites) {
+                    for (const [id, keyframes] of Object.entries(animationData.sprites)) {
                         const sprite = sprites[id];
-                        
-                        // Set everyone to their timeline base position first
-                        sprite.x = sprite.baseX;
-                        sprite.y = sprite.baseY;
+                        if (!sprite) continue;
 
-                        // Magic Rule: ONLY track mouse if Depth Level is 4 or deeper (The Pupils!)
-                        if (sprite.depthLevel >= 4) {
+                        const frameKeys = Object.keys(keyframes).map(Number).sort((a, b) => a - b);
+                        let prev = frameKeys.filter(f => f <= currentFrame).pop();
+                        let next = frameKeys.filter(f => f > currentFrame)[0];
+
+                        // Update baseX and baseY
+                        if (prev !== undefined && next !== undefined) {
+                            const progress = (currentFrame - prev) / (next - prev);
+                            sprite.baseX = keyframes[prev].x + (keyframes[next].x - keyframes[prev].x) * progress;
+                            sprite.baseY = keyframes[prev].y + (keyframes[next].y - keyframes[prev].y) * progress;
                             
-                            const localMouse = sprite.parent.toLocal(new PIXI.Point(targetMouseX, targetMouseY));
-                            
-                            let dx = localMouse.x - sprite.baseX;
-                            let dy = localMouse.y - sprite.baseY;
+                            const prevRot = keyframes[prev].rotation || 0;
+                            const nextRot = keyframes[next].rotation || 0;
+                            sprite.rotation = prevRot + (nextRot - prevRot) * progress;
 
-                            // 15% smooth follow
-                            let targetX = dx * 0.15;
-                            let targetY = dy * 0.15;
+                            const prevAlpha = keyframes[prev].alpha !== undefined ? keyframes[prev].alpha : 1;
+                            const nextAlpha = keyframes[next].alpha !== undefined ? keyframes[next].alpha : 1;
+                            sprite.alpha = prevAlpha + (nextAlpha - prevAlpha) * progress;
 
-                            // RADIAL CLAMP MATH
-                            let maxRadius = 15; // Set this to the maximum pixels the pupil can move!
-                            
-                            // Pythagorean theorem to find actual distance
-                            let distance = Math.sqrt((targetX * targetX) + (targetY * targetY));
-
-                            let offsetX = targetX;
-                            let offsetY = targetY;
-
-                            // Snap to the circular edge if it tries to leave the eyeball
-                            if (distance > maxRadius) {
-                                let ratio = maxRadius / distance;
-                                offsetX = targetX * ratio;
-                                offsetY = targetY * ratio;
-                            }
-
-                            // Apply final pupil position!
-                            sprite.x = sprite.baseX + offsetX;
-                            sprite.y = sprite.baseY + offsetY;
+                        } else if (prev !== undefined) {
+                            sprite.baseX = keyframes[prev].x; 
+                            sprite.baseY = keyframes[prev].y;
+                            sprite.rotation = keyframes[prev].rotation || 0;
+                            sprite.alpha = keyframes[prev].alpha !== undefined ? keyframes[prev].alpha : 1;
                         }
                     }
-                });
-            })
-            .catch(err => console.error("Error loading JSON:", err));
-    </script>
+                }
+
+                // --- STEP C: APPLY LIVE MOUSE TRACKING ---
+                let spriteIndex = 0; // Create a counter
+
+                for (const id in sprites) {
+                    const sprite = sprites[id];
+                    spriteIndex++; // Count up for each image
+                    
+                    // Default to timeline position
+                    sprite.x = sprite.baseX;
+                    sprite.y = sprite.baseY;
+
+                    // NEW: Target the 5th imported image (Pupils) directly!
+                    if (spriteIndex === 5) {
+                        
+                        // Because there is no parent, we use the 'world' container for local mouse coordinates
+                        const localMouse = world.toLocal(new PIXI.Point(targetMouseX, targetMouseY));
+                        let dx = localMouse.x - sprite.baseX;
+                        let dy = localMouse.y - sprite.baseY;
+
+                        let targetX = dx * 0.15;
+                        let targetY = dy * 0.15;
+
+                        let maxRadius = 15; 
+                        let distance = Math.sqrt((targetX * targetX) + (targetY * targetY));
+
+                        let offsetX = targetX;
+                        let offsetY = targetY;
+
+                        if (distance > maxRadius) {
+                            let ratio = maxRadius / distance;
+                            offsetX = targetX * ratio;
+                            offsetY = targetY * ratio;
+                        }
+
+                        sprite.x = sprite.baseX + offsetX;
+                        sprite.y = sprite.baseY + offsetY;
+                    }
+                }
+            });
+        })
+        .catch(err => console.error("Error loading JSON:", err));
+</script>
 </body>
 </html>

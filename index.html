@@ -10,16 +10,28 @@
 <body>
     <div id="editor-ui">
         <div id="toolbar">
-            <label class="btn-primary">
-                Import Image
-                <input type="file" id="image-upload" accept="image/*" hidden>
-            </label>
-            
-            <button id="undo-btn" class="btn-secondary">Undo (Ctrl+Z)</button>
-            <button id="export-btn" class="btn-primary" style="background: #28a745;">Export JSON</button>
+    <label class="btn-primary">
+        Import Image
+        <input type="file" id="image-upload" accept="image/*" hidden>
+    </label>
+    
+    <button id="export-btn" class="btn-primary" style="background: #28a745;">Export JSON</button>
+    
+    <div class="properties-panel" style="display: inline-flex; gap: 15px; margin-left: 20px; align-items: center; background: #2a2a2a; padding: 5px 15px; border-radius: 5px;">
 
-            <div id="zoom-display">Zoom: 100%</div>
-            <div id="controls-hint">Scroll: Zoom | Right-Click: Pan | Left-Click: Move</div>
+        <label style="color: white; font-size: 14px;">
+            Alpha: <span id="alpha-val">1.0</span>
+            <input type="range" id="alpha-slider" min="0" max="1" step="0.1" value="1" style="vertical-align: middle;">
+        </label>
+
+        <label style="color: white; font-size: 14px;">
+            Rot: <span id="rot-val">0°</span>
+            <input type="range" id="rot-slider" min="-180" max="180" value="0" style="vertical-align: middle;">
+        </label>
+
+    </div>
+    <div id="zoom-display">Zoom: 100%</div>
+    <div id="controls-hint">Scroll: Zoom | Right-Click: Pan | Left-Click: Move</div>
         </div>
     </div>
     <div id="layers-panel">

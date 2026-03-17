@@ -161,3 +161,8 @@ body.binding-mode {
     background: #ff4500 !important; 
     color: white;
 }
+#timeline-track-container {
+    overflow-x: auto;
+    position: relative;
+    /* other styles... */
+}

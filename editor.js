@@ -22,27 +22,13 @@ window.onload = () => {
 
     // NEW: Added the "assets" object to store the image text strings
     let animationData = {
-        duration: 60,
+        duration: 150,
         sprites: {},
         hierarchy: {},
         assets: {} 
     };
 
-    let history = [];
-    const maxHistory = 50;
-
-    const saveState = () => {
-        history.push(JSON.stringify(animationData));
-        if (history.length > maxHistory) history.shift();
-    };
-
-    const undo = () => {
-        if (history.length === 0) return;
-        const lastState = history.pop();
-        animationData = JSON.parse(lastState);
-        renderFrame(currentFrame);
-        renderKeyMarkers();
-    };
+    
 
     // --- 3. UI ELEMENTS ---
     const zoomDisplay = document.getElementById('zoom-display');
@@ -52,6 +38,53 @@ window.onload = () => {
     const addKeyframeBtn = document.getElementById('add-keyframe-btn');
     const bindBtn = document.getElementById('bind-btn'); 
     const frameWidth = 20;
+            // --- NEW: PROPERTY SLIDERS LOGIC ---
+        const alphaSlider = document.getElementById('alpha-slider');
+        const alphaValDisplay = document.getElementById('alpha-val');
+        const rotSlider = document.getElementById('rot-slider');
+        const rotValDisplay = document.getElementById('rot-val');
+
+        // 1. When the user moves the Alpha slider
+        alphaSlider.oninput = (e) => {
+            if (!selectedSprite) return;
+            const val = parseFloat(e.target.value);
+            
+            selectedSprite.alpha = val;
+            alphaValDisplay.innerText = val.toFixed(1);
+            
+            updateCurrentKeyframe();
+        };
+
+        // 2. When the user moves the Rotation slider
+        rotSlider.oninput = (e) => {
+            if (!selectedSprite) return;
+            const deg = parseInt(e.target.value);
+            
+            // Pixi uses Radians for rotation, so we convert Degrees to Radians
+            selectedSprite.rotation = deg * (Math.PI / 180); 
+            rotValDisplay.innerText = `${deg}°`;
+            
+            updateCurrentKeyframe();
+        };
+        rotSlider.ondblclick = () => {
+            if (!selectedSprite) return;
+            
+            rotSlider.value = 0;
+            selectedSprite.rotation = 0;
+            rotValDisplay.innerText = `0°`;
+            
+            updateCurrentKeyframe();
+        };
+        // 3. Helper to auto-save if they are parked on an existing keyframe
+        function updateCurrentKeyframe() {
+            if (!selectedSprite) return;
+            const id = selectedSprite.id;
+            if (animationData.sprites[id] && animationData.sprites[id][currentFrame]) {
+                // saveState() removed from here!
+                animationData.sprites[id][currentFrame].alpha = selectedSprite.alpha;
+                animationData.sprites[id][currentFrame].rotation = selectedSprite.rotation;
+            }
+        }
 
     // --- 4. LAYER & SELECTION MANAGEMENT ---
     function selectSprite(sprite) {
@@ -173,7 +206,7 @@ window.onload = () => {
                     selectedSprite.x = newLocalPos.x;
                     selectedSprite.y = newLocalPos.y;
 
-                    saveState();
+                    
                     animationData.hierarchy[selectedSprite.id] = sprite.id;
                     
                     selectedSprite.eventMode = 'static';
@@ -209,7 +242,7 @@ window.onload = () => {
         window.addEventListener('pointerup', () => {
             if (sprite.dragging) {
                 if (animationData.sprites[sprite.id]?.[currentFrame]) {
-                    saveState();
+                    // saveState() removed from here!
                     animationData.sprites[sprite.id][currentFrame] = { x: sprite.x, y: sprite.y };
                 }
                 sprite.dragging = false;
@@ -218,19 +251,33 @@ window.onload = () => {
         });
     }
 
+// --- 9. TIMELINE & KEYFRAME LOGIC ---
+
     // --- 9. TIMELINE & KEYFRAME LOGIC ---
+    let selectedKeyframe = null; // NEW: Tracks which keyframe is clicked
+
+    // Add Keyframe
     addKeyframeBtn.onclick = () => {
         if (!selectedSprite) return;
-        saveState();
         const id = selectedSprite.id;
         if (!animationData.sprites[id]) animationData.sprites[id] = {};
-        animationData.sprites[id][currentFrame] = { x: selectedSprite.x, y: selectedSprite.y };
+        animationData.sprites[id][currentFrame] = { 
+            x: selectedSprite.x, 
+            y: selectedSprite.y,
+            rotation: selectedSprite.rotation || 0,
+            alpha: selectedSprite.alpha !== undefined ? selectedSprite.alpha : 1 
+        };
+        // Auto-select the newly created keyframe
+        selectedKeyframe = { spriteId: id, frame: currentFrame.toString() };
         renderKeyMarkers();
     };
 
     function renderKeyMarkers() {
         const track = document.getElementById('keyframes-track');
         track.innerHTML = '';
+        
+        track.style.width = `${animationData.duration * frameWidth}px`;
+        
         if (!selectedSprite || !animationData.sprites[selectedSprite.id]) return;
 
         const frames = animationData.sprites[selectedSprite.id];
@@ -239,9 +286,20 @@ window.onload = () => {
             marker.className = 'keyframe-marker';
             marker.style.left = `${f * frameWidth}px`;
             
+            // NEW: Highlight the marker if it is currently selected
+            if (selectedKeyframe && selectedKeyframe.spriteId === selectedSprite.id && selectedKeyframe.frame === f.toString()) {
+                marker.style.backgroundColor = '#ffeb3b'; // Make it yellow
+                marker.style.boxShadow = '0 0 5px #ffeb3b';
+                marker.style.zIndex = '10'; // Bring to front
+            }
+
             marker.onmousedown = (e) => {
                 e.stopPropagation();
-                saveState();
+                
+                // NEW: Select this keyframe on click
+                selectedKeyframe = { spriteId: selectedSprite.id, frame: f.toString() };
+                renderKeyMarkers(); // Re-render to show the yellow highlight
+
                 let onMove = (moveEvent) => {
                     const rect = trackContainer.getBoundingClientRect();
                     let newX = moveEvent.clientX - rect.left + trackContainer.scrollLeft;
@@ -251,6 +309,9 @@ window.onload = () => {
                         const data = animationData.sprites[selectedSprite.id][f];
                         delete animationData.sprites[selectedSprite.id][f];
                         animationData.sprites[selectedSprite.id][newFrame] = data;
+                        
+                        // Update selection to follow the drag
+                        selectedKeyframe.frame = newFrame.toString(); 
                         f = newFrame;
                         renderKeyMarkers();
                     }
@@ -266,16 +327,32 @@ window.onload = () => {
         });
     }
 
+    // --- NEW: KEYBOARD LOGIC FOR DELETING KEYFRAMES ---
+    window.addEventListener('keydown', (e) => {
+        // Check if Delete or Backspace is pressed
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (selectedKeyframe && animationData.sprites[selectedKeyframe.spriteId]) {
+                delete animationData.sprites[selectedKeyframe.spriteId][selectedKeyframe.frame];
+                selectedKeyframe = null; // Clear selection after deleting
+                renderKeyMarkers();
+                renderFrame(currentFrame);
+            }
+        }
+    });
+
     // --- 10. PLAYBACK & SCRUBBING ---
     let isScrubbing = false;
     trackContainer.onmousedown = (e) => {
-        if (e.target.className === 'keyframe-marker') return;
+        // NEW: Clicking anywhere else on the timeline deselects the keyframe
+        selectedKeyframe = null;
+        renderKeyMarkers(); 
+
+        if (e.target.className.includes('keyframe-marker')) return;
         isScrubbing = true;
         updatePlayheadFromMouse(e);
     };
     window.addEventListener('mousemove', (e) => { if (isScrubbing) updatePlayheadFromMouse(e); });
-    window.addEventListener('mouseup', () => isScrubbing = false);
-
+    window.addEventListener('mouseup', () => isScrubbing = false)
     function updatePlayheadFromMouse(e) {
         const rect = trackContainer.getBoundingClientRect();
         let x = e.clientX - rect.left + trackContainer.scrollLeft;
@@ -299,10 +376,35 @@ window.onload = () => {
                 const progress = (frame - prev) / (next - prev);
                 sprite.x = keyframes[prev].x + (keyframes[next].x - keyframes[prev].x) * progress;
                 sprite.y = keyframes[prev].y + (keyframes[next].y - keyframes[prev].y) * progress;
+                
+                // Interpolate Rotation and Alpha
+                const prevRot = keyframes[prev].rotation || 0;
+                const nextRot = keyframes[next].rotation || 0;
+                sprite.rotation = prevRot + (nextRot - prevRot) * progress;
+
+                const prevAlpha = keyframes[prev].alpha !== undefined ? keyframes[prev].alpha : 1;
+                const nextAlpha = keyframes[next].alpha !== undefined ? keyframes[next].alpha : 1;
+                sprite.alpha = prevAlpha + (nextAlpha - prevAlpha) * progress;
+
             } else if (prev !== undefined) {
                 sprite.x = keyframes[prev].x; 
                 sprite.y = keyframes[prev].y;
+                
+                // Set Static Rotation and Alpha
+                sprite.rotation = keyframes[prev].rotation || 0;
+                sprite.alpha = keyframes[prev].alpha !== undefined ? keyframes[prev].alpha : 1;
             }
+        }
+
+        // --- UI SYNC LOGIC (Must be inside renderFrame!) ---
+        if (selectedSprite) {
+            alphaSlider.value = selectedSprite.alpha;
+            alphaValDisplay.innerText = selectedSprite.alpha.toFixed(1);
+            
+            // Convert Radians back to Degrees for the UI
+            const deg = Math.round(selectedSprite.rotation * (180 / Math.PI));
+            rotSlider.value = deg;
+            rotValDisplay.innerText = `${deg}°`;
         }
     }
 
@@ -316,14 +418,6 @@ window.onload = () => {
             currentFrame++;
             if (currentFrame >= animationData.duration) currentFrame = 0;
             renderFrame(currentFrame);
-        }
-    });
-
-    // --- 11. GLOBAL HOTKEYS ---
-    window.addEventListener('keydown', (e) => {
-        if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-            e.preventDefault();
-            undo();
         }
     });
 
