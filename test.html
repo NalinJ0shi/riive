@@ -28,7 +28,6 @@
         let targetMouseX = window.innerWidth / 2;
         let targetMouseY = window.innerHeight / 2;
 
-        // Turn on stage interactivity to track the mouse everywhere
         app.stage.eventMode = 'static';
         app.stage.hitArea = new PIXI.Rectangle(0, 0, window.innerWidth, window.innerHeight);
         app.stage.on('pointermove', (e) => {
@@ -37,7 +36,7 @@
         });
 
         // 2. Fetch YOUR custom JSON file
-        fetch('eye_tracker.json')
+        fetch('idle anim.json')
             .then(response => response.json())
             .then(animationData => {
                 
@@ -50,8 +49,7 @@
                     const sprite = new PIXI.Sprite(texture);
                     sprite.anchor.set(0.5); 
                     
-                    // NEW: We save the "Base" position separate from the actual "Display" position
-                    // This stops the animation and the mouse tracking from fighting!
+                    // Save Base position for timeline vs live-tracking separation
                     sprite.baseX = 0;
                     sprite.baseY = 0;
 
@@ -73,6 +71,18 @@
                     }
                 }
 
+                // --- ZERO-CONFIG TRICK: Calculate Skeleton Depth ---
+                // Shirt=0, Arm=1, Face=2, Eyes/Glasses=3, Pupils=4
+                for (const id in sprites) {
+                    let depth = 0;
+                    let current = sprites[id];
+                    while (current.parent && current.parent !== world) {
+                        depth++;
+                        current = current.parent;
+                    }
+                    sprites[id].depthLevel = depth;
+                }
+
                 // 5. The Hybrid Playback Engine
                 let currentFrame = 0;
                 
@@ -91,7 +101,6 @@
                             let prev = frameKeys.filter(f => f <= currentFrame).pop();
                             let next = frameKeys.filter(f => f > currentFrame)[0];
 
-                            // Update the BASE position using the keyframes
                             if (prev !== undefined && next !== undefined) {
                                 const progress = (currentFrame - prev) / (next - prev);
                                 sprite.baseX = keyframes[prev].x + (keyframes[next].x - keyframes[prev].x) * progress;
@@ -103,32 +112,43 @@
                         }
                     }
 
-                    // --- STEP B: APPLY LIVE MOUSE TRACKING ---
+                    // --- STEP B: APPLY LIVE MOUSE TRACKING (Radial Clamp) ---
                     for (const id in sprites) {
                         const sprite = sprites[id];
                         
-                        // First, set the sprite to wherever the timeline says it should be
+                        // Set everyone to their timeline base position first
                         sprite.x = sprite.baseX;
                         sprite.y = sprite.baseY;
 
-                        // Magic Rule: If this sprite is a CHILD (like your bound eyes), make it track the mouse!
-                        if (sprite.parent && sprite.parent !== world) {
+                        // Magic Rule: ONLY track mouse if Depth Level is 4 or deeper (The Pupils!)
+                        if (sprite.depthLevel >= 4) {
                             
-                            // Find the mouse position relative to the Face
                             const localMouse = sprite.parent.toLocal(new PIXI.Point(targetMouseX, targetMouseY));
                             
-                            // Calculate the distance from the Eye's center to the Mouse
                             let dx = localMouse.x - sprite.baseX;
                             let dy = localMouse.y - sprite.baseY;
 
-                            // THE CLAMP: Don't let the pupil move more than 12 pixels!
-                            let maxMove = 12; 
-                            
-                            // Calculate the offset (the 0.15 makes it smooth instead of snappy)
-                            let offsetX = Math.max(-maxMove, Math.min(maxMove, dx * 0.15));
-                            let offsetY = Math.max(-maxMove, Math.min(maxMove, dy * 0.15));
+                            // 15% smooth follow
+                            let targetX = dx * 0.15;
+                            let targetY = dy * 0.15;
 
-                            // Add the mouse offset ON TOP of the timeline animation!
+                            // RADIAL CLAMP MATH
+                            let maxRadius = 15; // Set this to the maximum pixels the pupil can move!
+                            
+                            // Pythagorean theorem to find actual distance
+                            let distance = Math.sqrt((targetX * targetX) + (targetY * targetY));
+
+                            let offsetX = targetX;
+                            let offsetY = targetY;
+
+                            // Snap to the circular edge if it tries to leave the eyeball
+                            if (distance > maxRadius) {
+                                let ratio = maxRadius / distance;
+                                offsetX = targetX * ratio;
+                                offsetY = targetY * ratio;
+                            }
+
+                            // Apply final pupil position!
                             sprite.x = sprite.baseX + offsetX;
                             sprite.y = sprite.baseY + offsetY;
                         }
