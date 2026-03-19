@@ -22,7 +22,7 @@ window.onload = () => {
 
     // NEW: Added the "assets" object to store the image text strings
     let animationData = {
-        duration: 150,
+        duration: 60,
         sprites: {},
         hierarchy: {},
         assets: {} 

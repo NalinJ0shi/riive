@@ -204,10 +204,7 @@
                         sprite.parent.addChild(sprite.debugOutline);
                     }
                     sprite.debugOutline.clear();
-                    sprite.debugOutline.lineStyle(3, 0xFF0000, 1); 
-                    // We now draw the red oval at the shifted position!
-                    sprite.debugOutline.drawEllipse(sprite.baseX + cageOffsetX, sprite.baseY + cageOffsetY, rx, ry);
-                    // ----------------------------------------------------
+                    // debug oval removed
 
                     // 2. PARENT SPACE TRACKING
                     const localMouse = sprite.parent.toLocal(new PIXI.Point(targetMouseX, targetMouseY));
